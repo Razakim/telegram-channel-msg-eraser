@@ -1,5 +1,5 @@
 """
-TgEraser deletes all your messages from a chat/channel/conversation on Telegram without requiring admin privileges.
+Razakim Channel Eraser legacy CLI deletes your messages from a chat/channel/conversation on Telegram.
 
 Usage:
     tgeraser [(session <session_name>) --entity-type TYPE -l NUM -d PATH -p PEER_ID -o STRING -m TYPES --delete-conversation]
@@ -106,7 +106,7 @@ async def main() -> None:
 
 async def run_eraser(kwargs: dict) -> None:
     """
-    Runs the eraser
+    Runs the eraser.
     """
     client = Eraser(**kwargs)
     try:
