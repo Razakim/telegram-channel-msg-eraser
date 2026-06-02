@@ -39,6 +39,7 @@ class ControlBot:
 
     def __init__(self, config: ServiceConfig) -> None:
         self.config = config
+        os.makedirs(config.state_dir, exist_ok=True)
         self.bot = TelegramClient(
             os.path.join(config.state_dir, "control_bot"),
             config.api_id,
@@ -60,7 +61,6 @@ class ControlBot:
         self.task: asyncio.Task[PurgeState] | None = None
 
     async def run(self) -> None:
-        os.makedirs(self.config.state_dir, exist_ok=True)
         await self.bot.start(bot_token=self.config.bot_token)
         self._register_handlers()
         health_task = asyncio.create_task(start_health_server(self.config.port))
