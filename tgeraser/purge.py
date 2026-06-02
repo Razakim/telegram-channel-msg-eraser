@@ -250,7 +250,23 @@ class ChannelPurgeEngine:
 
     async def _get_channel(self) -> Channel:
         client = self._require_client()
-        entity = await client.get_entity(self.config.channel)
+        target = self.config.channel
+        try:
+            target = int(target)
+        except ValueError:
+            pass
+
+        try:
+            entity = await client.get_entity(target)
+        except ValueError:
+            if isinstance(target, int) and target > 0:
+                try:
+                    entity = await client.get_entity(int(f"-100{target}"))
+                except ValueError:
+                    raise
+            else:
+                raise
+
         if not isinstance(entity, Channel) or entity.megagroup:
             raise TgEraserException("TG_CHANNEL must target a channel, not a group.")
         return entity
