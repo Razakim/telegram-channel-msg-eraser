@@ -9,6 +9,7 @@ from typing import Awaitable, Callable
 
 from telethon import Button, TelegramClient, events
 from telethon.events import CallbackQuery, NewMessage
+from telethon.errors import MessageNotModifiedError
 
 from .exceptions import TgEraserException
 from .purge import ChannelPurgeEngine, PurgeConfig, PurgeState
@@ -61,6 +62,7 @@ class ControlBot:
         self.task: asyncio.Task[PurgeState] | None = None
 
     async def run(self) -> None:
+        # pyrefly: ignore [not-async]
         await self.bot.start(bot_token=self.config.bot_token)
         self._register_handlers()
         health_task = asyncio.create_task(start_health_server(self.config.port))
@@ -96,7 +98,10 @@ class ControlBot:
                 "resume": self._resume,
             }
             handler = handlers.get(data, self._show_home)
-            await handler(event)
+            try:
+                await handler(event)
+            except MessageNotModifiedError:
+                await event.answer()
 
     async def _is_allowed(self, event: NewMessage.Event | CallbackQuery.Event) -> bool:
         sender_id = event.sender_id
