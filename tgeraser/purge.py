@@ -4,6 +4,7 @@ Slow, resumable channel purge engine.
 
 import asyncio
 import json
+import logging
 import os
 import random
 from dataclasses import asdict, dataclass
@@ -196,6 +197,7 @@ class ChannelPurgeEngine:
                     remaining_today = self._remaining_today(state)
                     if remaining_today is not None:
                         deletable_ids = deletable_ids[:remaining_today]
+                    logging.info(f"Deleting batch of {len(deletable_ids)} messages (last seen ID: {state.last_seen_id})")
                     await self._delete_batch(entity, deletable_ids, state)
 
                 self.save_state(state)

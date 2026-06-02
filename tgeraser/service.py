@@ -3,6 +3,7 @@ Telegram inline control bot for Koyeb deployments.
 """
 
 import asyncio
+import logging
 import os
 from dataclasses import dataclass
 from typing import Awaitable, Callable
@@ -325,6 +326,7 @@ async def main() -> None:
 
 
 def entry() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     asyncio.run(main())
 
 
