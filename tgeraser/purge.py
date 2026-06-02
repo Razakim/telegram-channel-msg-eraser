@@ -41,6 +41,8 @@ class PurgeConfig:
 @dataclass
 class PurgeState:
     status: str = "idle"
+    direction: str = "oldest"
+    target_limit: int = 99
     channel: str = ""
     channel_title: str = ""
     last_seen_id: int = 0
@@ -175,28 +177,37 @@ class ChannelPurgeEngine:
                     self.save_state(state)
                     return state
 
+                if state.target_limit > 0 and state.deleted >= state.target_limit:
+                    state.status = "complete"
+                    self.save_state(state)
+                    return state
+
                 if self.config.daily_limit > 0 and state.deleted_today >= self.config.daily_limit:
                     state.status = "daily_limit"
                     self.save_state(state)
                     await self._sleep_interruptibly(60)
                     continue
 
-                messages = await self._read_next_messages(entity, state.last_seen_id)
+                messages = await self._read_next_messages(entity, state)
                 if not messages:
                     state.status = "complete"
                     self.save_state(state)
                     return state
 
-                messages = self._limit_messages_for_today(messages, state)
+                messages = self._limit_messages(messages, state)
                 state.scanned += len(messages)
-                state.last_seen_id = min(message.id for message in messages)
+                if messages:
+                    if state.direction == "oldest":
+                        state.last_seen_id = max(message.id for message in messages)
+                    else:
+                        state.last_seen_id = min(message.id for message in messages)
                 deletable_ids = [message.id for message in messages if message.action is None]
                 state.skipped += len(messages) - len(deletable_ids)
 
                 if deletable_ids:
-                    remaining_today = self._remaining_today(state)
-                    if remaining_today is not None:
-                        deletable_ids = deletable_ids[:remaining_today]
+                    remaining = self._remaining_deletions(state)
+                    if remaining is not None:
+                        deletable_ids = deletable_ids[:remaining]
                     logging.info(f"Deleting batch of {len(deletable_ids)} messages (last seen ID: {state.last_seen_id})")
                     await self._delete_batch(entity, deletable_ids, state)
 
@@ -215,15 +226,16 @@ class ChannelPurgeEngine:
                     self.save_state(state)
 
     async def _read_next_messages(
-        self, entity: Channel, offset_id: int
+        self, entity: Channel, state: PurgeState
     ) -> list[Message]:
         client = self._require_client()
         messages: list[Message] = []
         async for message in client.iter_messages(
             entity,
             limit=self.config.batch_size,
-            offset_id=offset_id,
+            offset_id=state.last_seen_id,
             wait_time=self.config.iter_wait_seconds,
+            reverse=(state.direction == "oldest"),
         ):
             messages.append(message)
         return messages
@@ -284,16 +296,22 @@ class ChannelPurgeEngine:
             state.day = today
             state.deleted_today = 0
 
-    def _remaining_today(self, state: PurgeState) -> int | None:
-        if self.config.daily_limit <= 0:
+    def _remaining_deletions(self, state: PurgeState) -> int | None:
+        limits = []
+        if self.config.daily_limit > 0:
+            limits.append(max(0, self.config.daily_limit - state.deleted_today))
+        if state.target_limit > 0:
+            limits.append(max(0, state.target_limit - state.deleted))
+        
+        if not limits:
             return None
-        return max(0, self.config.daily_limit - state.deleted_today)
+        return min(limits)
 
-    def _limit_messages_for_today(
+    def _limit_messages(
         self, messages: list[Message], state: PurgeState
     ) -> list[Message]:
-        remaining_today = self._remaining_today(state)
-        if remaining_today is None:
+        remaining = self._remaining_deletions(state)
+        if remaining is None:
             return messages
 
         deletable_seen = 0
@@ -302,7 +320,7 @@ class ChannelPurgeEngine:
             limited.append(message)
             if message.action is None:
                 deletable_seen += 1
-            if deletable_seen >= remaining_today:
+            if deletable_seen >= remaining:
                 break
         return limited
 

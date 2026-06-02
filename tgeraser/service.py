@@ -82,6 +82,16 @@ class ControlBot:
                 return
             await event.respond(self._home_text(), buttons=self._home_buttons())
 
+        @self.bot.on(events.NewMessage(pattern=r"^\d+$"))
+        async def set_limit(event: NewMessage.Event) -> None:
+            if not await self._is_allowed(event):
+                return
+            new_limit = int(event.text)
+            state = self.engine.load_state()
+            state.target_limit = new_limit
+            self.engine.save_state(state)
+            await event.respond(f"Objectif mis à jour : {new_limit} messages.", buttons=self._home_buttons())
+
         @self.bot.on(events.CallbackQuery)
         async def callback(event: CallbackQuery.Event) -> None:
             if not await self._is_allowed(event):
@@ -97,6 +107,7 @@ class ControlBot:
                 "start_now": self._start_now,
                 "pause": self._pause,
                 "resume": self._resume,
+                "toggle_direction": self._toggle_direction,
             }
             handler = handlers.get(data, self._show_home)
             try:
@@ -126,12 +137,26 @@ class ControlBot:
         await event.edit(self._status_text(state), buttons=self._status_buttons(state))
 
     async def _show_settings(self, event: CallbackQuery.Event) -> None:
-        await event.edit(self._settings_text(), buttons=self._back_buttons())
+        state = self.engine.load_state()
+        buttons = [
+            [Button.inline("Changer de sens (Ancien/Recent)", b"toggle_direction")]
+        ] + self._back_buttons()
+        await event.edit(self._settings_text(state), buttons=buttons)
+
+    async def _toggle_direction(self, event: CallbackQuery.Event) -> None:
+        state = self.engine.load_state()
+        state.direction = "newest" if state.direction == "oldest" else "oldest"
+        state.last_seen_id = 0
+        self.engine.save_state(state)
+        await self._show_settings(event)
 
     async def _show_help(self, event: CallbackQuery.Event) -> None:
         await event.edit(self._help_text(), buttons=self._back_buttons())
 
     async def _dry_run(self, event: CallbackQuery.Event) -> None:
+        if self.task and not self.task.done():
+            await event.answer("Impossible pendant une purge. Mets en pause d'abord.", alert=True)
+            return
         await event.edit("Analyse du canal en cours...", buttons=self._back_buttons())
         try:
             state = await self.engine.dry_run()
@@ -156,10 +181,29 @@ class ControlBot:
             return
         self.task = asyncio.create_task(self.engine.purge())
         self.task.add_done_callback(self._record_task_failure)
+        
+        state = self.engine.load_state()
         await event.edit(
-            "Purge lancee. Je garde le rythme configure et je note la progression.",
-            buttons=self._status_buttons(self.engine.load_state()),
+            self._status_text(state),
+            buttons=self._status_buttons(state),
         )
+        asyncio.create_task(self._auto_refresh_status(event.chat_id, event.message_id))
+
+    async def _auto_refresh_status(self, chat_id: int, msg_id: int) -> None:
+        while self.task and not self.task.done():
+            await asyncio.sleep(2)
+            try:
+                state = self.engine.load_state()
+                await self.bot.edit_message(
+                    chat_id,
+                    msg_id,
+                    self._status_text(state),
+                    buttons=self._status_buttons(state),
+                )
+            except MessageNotModifiedError:
+                pass
+            except Exception:
+                pass
 
     def _record_task_failure(self, task: asyncio.Task[PurgeState]) -> None:
         try:
@@ -219,33 +263,34 @@ class ControlBot:
 
     def _status_text(self, state: PurgeState) -> str:
         total = state.dry_run_total if state.dry_run_total is not None else "inconnu"
+        progression = f"{state.deleted}/{state.target_limit}" if state.target_limit > 0 else f"{state.deleted} (sans limite)"
         lines = [
-            "Statut purge",
+            "Statut purge (Actualisation auto)",
             "",
             f"Canal: {state.channel_title or self.config.channel}",
             f"Etat: {state.status}",
+            f"Sens: {'Les plus anciens d\'abord' if state.direction == 'oldest' else 'Les plus recents d\'abord'}",
             f"Messages estimes: {total}",
             f"Scannes: {state.scanned}",
-            f"Supprimes: {state.deleted}",
-            f"Supprimes aujourd'hui: {state.deleted_today}/{self.config.daily_limit}",
+            f"Supprimes: {progression}",
             f"Ignores: {state.skipped}",
             f"Echecs: {state.failed}",
             f"Dernier ID vu: {state.last_seen_id or '-'}",
-            f"Derniere maj: {state.updated_at or '-'}",
         ]
         if state.last_error:
             lines.extend(["", f"Derniere erreur: {state.last_error}"])
         return "\n".join(lines)
 
-    def _settings_text(self) -> str:
+    def _settings_text(self, state: PurgeState) -> str:
         return (
             "Reglages actifs\n\n"
-            f"Canal: {self.config.channel}\n"
+            f"Sens: {'Les plus anciens d\'abord' if state.direction == 'oldest' else 'Les plus recents d\'abord'}\n"
+            f"Objectif cible: {state.target_limit} (envoie simplement un nombre dans le chat pour le modifier)\n\n"
+            f"Canal cible: {self.config.channel}\n"
             f"Taille lot: {self.config.batch_size}\n"
             f"Pause entre lots: {self.config.batch_delay_seconds}s\n"
             f"Limite quotidienne: {self.config.daily_limit}\n"
-            f"Dossier etat: {self.config.state_dir}\n\n"
-            "Change ces valeurs via les variables d'environnement Koyeb."
+            f"Dossier etat: {self.config.state_dir}\n"
         )
 
     def _help_text(self) -> str:
