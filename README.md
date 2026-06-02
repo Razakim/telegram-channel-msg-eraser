@@ -125,13 +125,13 @@ If you prefer a very conservative rhythm, keep smaller batches and a larger
 Koyeb can use the included `Procfile`:
 
 ```
-web: tgeraser-service
+web: python -m tgeraser.service
 ```
 
 You can also set the run command manually:
 
 ```
-tgeraser-service
+python -m tgeraser.service
 ```
 
 The service opens a tiny HTTP health endpoint on `$PORT` and keeps the Telegram

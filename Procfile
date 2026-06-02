@@ -1,1 +1,1 @@
-web: tgeraser-service
+web: python -m tgeraser.service
