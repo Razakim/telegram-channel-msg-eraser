@@ -269,7 +269,7 @@ class ControlBot:
             "",
             f"Canal: {state.channel_title or self.config.channel}",
             f"Etat: {state.status}",
-            f"Sens: {'Les plus anciens d\'abord' if state.direction == 'oldest' else 'Les plus recents d\'abord'}",
+            f"Sens: {'Les plus anciens en premier' if state.direction == 'oldest' else 'Les plus recents en premier'}",
             f"Messages estimes: {total}",
             f"Scannes: {state.scanned}",
             f"Supprimes: {progression}",
@@ -284,7 +284,7 @@ class ControlBot:
     def _settings_text(self, state: PurgeState) -> str:
         return (
             "Reglages actifs\n\n"
-            f"Sens: {'Les plus anciens d\'abord' if state.direction == 'oldest' else 'Les plus recents d\'abord'}\n"
+            f"Sens: {'Les plus anciens en premier' if state.direction == 'oldest' else 'Les plus recents en premier'}\n"
             f"Objectif cible: {state.target_limit} (envoie simplement un nombre dans le chat pour le modifier)\n\n"
             f"Canal cible: {self.config.channel}\n"
             f"Taille lot: {self.config.batch_size}\n"
